@@ -1,0 +1,14 @@
+# Third-party projects kept locally for reference only
+reference/
+
+# ESP-IDF build output; sdkconfig holds your real WiFi SSID and password
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/managed_components/
+firmware/dependencies.lock
+
+__pycache__/
+*.pyc
+.env
+.env.*

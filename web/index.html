@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WiFi CSI Presence</title>
+<style>
+  :root {
+    --bg: #12141a; --card: #1b1e26; --line: #2a2f3a;
+    --fg: #e6e8ee; --dim: #8e95a6; --accent: #5fb3f6;
+    --warn: #f0b429; --bad: #f2685f; --ok: #4ec9a5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 19px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 24px; }
+  #cards { display: grid; gap: 18px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .room { font-size: 16px; font-weight: 600; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); }
+  .badge.warn { color: var(--warn); border-color: var(--warn); }
+  .badge.bad  { color: var(--bad);  border-color: var(--bad); }
+  .badge.ok   { color: var(--ok);   border-color: var(--ok); }
+
+  .state { font-size: 28px; font-weight: 650; margin: 14px 0 2px; }
+  .score { color: var(--dim); font-size: 13px; }
+
+  .figure-wrap { display: flex; align-items: center; gap: 16px; margin: 16px 0 6px; }
+  .caption { color: var(--dim); font-size: 11px; font-style: italic; max-width: 190px; }
+  svg.figure { width: 84px; height: 108px; flex: none; }
+  svg.figure g.body {
+    transform-box: fill-box; transform-origin: 50% 92%;
+    animation: wobble var(--period, 4s) ease-in-out infinite;
+  }
+  svg.figure g.limbL { transform-box: fill-box; transform-origin: 100% 0%;
+    animation: swing var(--period, 4s) ease-in-out infinite; }
+  svg.figure g.limbR { transform-box: fill-box; transform-origin: 0% 0%;
+    animation: swing var(--period, 4s) ease-in-out infinite reverse; }
+  @keyframes wobble {
+    0%, 100% { transform: rotate(calc(var(--amp, 0.4deg) * -1)) translateY(0); }
+    50%      { transform: rotate(var(--amp, 0.4deg)) translateY(calc(var(--lift, 0px) * -1)); }
+  }
+  @keyframes swing {
+    0%, 100% { transform: rotate(calc(var(--amp, 0.4deg) * -1.6)); }
+    50%      { transform: rotate(calc(var(--amp, 0.4deg) * 1.6)); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    svg.figure g { animation: none !important; }
+  }
+
+  .spark { width: 100%; height: 46px; margin-top: 10px; }
+  .spark-label { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; }
+
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+  button {
+    background: transparent; color: var(--accent); border: 1px solid var(--accent);
+    border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  button:hover { background: rgba(95,179,246,.12); }
+  button:disabled { color: var(--dim); border-color: var(--line); cursor: default; background: none; }
+
+  .notice { border-left: 3px solid var(--warn); background: rgba(240,180,41,.08);
+            padding: 8px 12px; border-radius: 0 6px 6px 0; font-size: 12.5px; margin-top: 12px; }
+
+  footer { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 16px;
+           color: var(--dim); font-size: 12.5px; max-width: 760px; }
+  footer strong { color: var(--fg); }
+  footer ul { margin: 8px 0 0; padding-left: 18px; }
+  footer li { margin: 3px 0; }
+</style>
+</head>
+<body>
+
+<h1>WiFi CSI Presence</h1>
+<div class="sub" id="conn">connecting…</div>
+
+<div id="cards"></div>
+<div class="card" id="waiting">
+  <div class="state">Waiting for a node…</div>
+  <div class="score">No telemetry received yet. Check the ESP32 is powered, joined to
+    WiFi, and configured with this host's IP.</div>
+</div>
+
+<footer>
+  <strong>What this actually measures.</strong>
+  It detects general disturbance in the WiFi signal between one ESP32 and your
+  router, which correlates with movement nearby. It cannot identify who or what
+  caused the disturbance, and it derives no size, shape, height, position or
+  identity of anything. A fan, a pet, a washing machine, a door swinging or the
+  router retuning its rate can all move the number.
+  <ul>
+    <li>A single node on a single router link is noticeably noisier and less
+        spatially resolved than a two-node setup — treat readings as a rough
+        signal, not a measurement.</li>
+    <li>The "brief" / "sustained" label is a soft hint about how continuous the
+        disturbance was. It is not a classification of the cause.</li>
+    <li>The figure below is decoration driven by one number. It is not an image,
+        a pose, or a position.</li>
+    <li><strong>Not for security, safety, medical or any critical use.</strong></li>
+  </ul>
+</footer>
+
+<script>
+const STATES = [
+  { max: 12,  label: "Still",         color: "var(--dim)"    },
+  { max: 35,  label: "Some movement", color: "var(--accent)" },
+  { max: 101, label: "Active",        color: "var(--warn)"   },
+];
+
+const PATTERN_HINT = {
+  quiet:     "no sustained disturbance",
+  brief:     "brief / erratic disturbance (soft hint)",
+  sustained: "sustained disturbance (soft hint)",
+};
+
+function stateFor(score) {
+  return STATES.find(s => score < s.max) || STATES[STATES.length - 1];
+}
+
+function figureSvg() {
+  return `
+  <svg class="figure" viewBox="0 0 60 78" aria-hidden="true">
+    <g class="body" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none">
+      <circle cx="30" cy="12" r="8" />
+      <line x1="30" y1="20" x2="30" y2="45" />
+      <g class="limbL"><line x1="30" y1="27" x2="16" y2="38" /></g>
+      <g class="limbR"><line x1="30" y1="27" x2="44" y2="38" /></g>
+      <line x1="30" y1="45" x2="21" y2="66" />
+      <line x1="30" y1="45" x2="39" y2="66" />
+    </g>
+  </svg>`;
+}
+
+function sparkline(history, step) {
+  const w = 300, h = 46;
+  if (history.length < 2) {
+    return `<div class="spark-label" style="margin-top:12px">
+              <span>not enough history yet for a trend</span></div>`;
+  }
+  const n = history.length;
+  const pts = history.map((v, i) => {
+    const x = n === 1 ? w : (i / (n - 1)) * w;
+    return `${x.toFixed(1)},${(h - (Math.min(v, 100) / 100) * (h - 3) - 1.5).toFixed(1)}`;
+  }).join(" ");
+  const mins = Math.round((n * step) / 60);
+  return `
+    <svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.5"
+                vector-effect="non-scaling-stroke" />
+    </svg>
+    <div class="spark-label"><span>${mins} min ago</span><span>now</span></div>`;
+}
+
+// The card is built once per location and then patched in place. Replacing the
+// markup every second would restart the CSS animation and the figure would
+// stutter instead of moving smoothly.
+function buildCard() {
+  const el = document.createElement("div");
+  el.className = "card";
+  el.innerHTML = `
+    <div class="head"><span class="room"></span><span class="badges"></span></div>
+    <div class="state"></div>
+    <div class="score detail"></div>
+    <div class="figure-wrap">
+      ${figureSvg()}
+      <div class="caption">Activity indicator — not a real image of what's happening.
+        Only the wobble intensity is driven by the signal.</div>
+    </div>
+    <div class="trend"></div>
+    <div class="notice-slot"></div>
+    <div class="row">
+      <button onclick="calibrate(this)">Calibrate (60 s)</button>
+      <span class="score calmsg"></span>
+    </div>`;
+  return el;
+}
+
+function updateCard(el, node) {
+  const score = node.online ? node.activity_score : 0;
+  const st = stateFor(score);
+
+  // Animation intensity is the ONLY thing derived from the signal.
+  const wrap = el.querySelector(".figure-wrap");
+  wrap.style.setProperty("--amp", (0.4 + (score / 100) * 7).toFixed(2) + "deg");
+  wrap.style.setProperty("--lift", (score / 100 * 3).toFixed(1) + "px");
+  wrap.style.setProperty("--period", (3.4 - (score / 100) * 2.6).toFixed(2) + "s");
+  wrap.style.color = st.color;
+
+  el.querySelector(".room").textContent = node.location;
+
+  const stateEl = el.querySelector(".state");
+  stateEl.textContent = node.online ? st.label : "No data";
+  stateEl.style.color = st.color;
+
+  el.querySelector(".detail").textContent = node.online
+    ? `activity ${score}/100 · ${PATTERN_HINT[node.pattern] || node.pattern}`
+    : `no telemetry for ${node.age}s — any reading below is stale`;
+
+  const badges = [];
+  if (node.simulated)        badges.push(["warn", "simulated data"]);
+  if (!node.online)          badges.push(["bad",  `offline ${node.age}s`]);
+  else if (node.calibrating) badges.push(["warn", "calibrating…"]);
+  else if (node.calibrated)  badges.push(["ok",   "calibrated"]);
+  else                       badges.push(["warn", "not calibrated"]);
+  el.querySelector(".badges").innerHTML =
+    badges.map(([c, t]) => `<span class="badge ${c}">${t}</span>`).join(" ");
+
+  el.querySelector(".trend").innerHTML = sparkline(node.history, node.history_step);
+
+  let notice = "";
+  if (node.calibrating) {
+    notice = `<div class="notice">Calibrating — keep the room still and stay out of it
+              for 60 seconds. Readings during this window mean nothing.</div>`;
+  } else if (!node.calibrated) {
+    notice = `<div class="notice"><strong>Not calibrated.</strong> The score is using a
+              generic guess at a quiet room and will be unreliable. Run calibration
+              from a still, empty room.</div>`;
+  }
+  el.querySelector(".notice-slot").innerHTML = notice;
+
+  const btn = el.querySelector("button");
+  if (btn.dataset.busy !== "1") {
+    btn.disabled = node.simulated;
+    el.querySelector(".calmsg").textContent = node.simulated ? "no hardware to calibrate" : "";
+  }
+}
+
+async function calibrate(btn) {
+  btn.disabled = true;
+  btn.dataset.busy = "1";
+  const msg = btn.parentElement.querySelector(".calmsg");
+  try {
+    const r = await fetch("/api/calibrate", { method: "POST" });
+    const j = await r.json();
+    msg.textContent = j.ok ? "calibration started" : (j.error || "failed");
+  } catch (e) {
+    msg.textContent = "bridge unreachable";
+  }
+  setTimeout(() => { btn.dataset.busy = "0"; btn.disabled = false; }, 3000);
+}
+
+const cards = new Map();
+
+function render(snap) {
+  const root = document.getElementById("cards");
+  const waiting = document.getElementById("waiting");
+
+  waiting.hidden = snap.nodes.length > 0;
+  for (const node of snap.nodes) {
+    let el = cards.get(node.location);
+    if (!el) {
+      el = buildCard();
+      cards.set(node.location, el);
+      root.appendChild(el);
+    }
+    updateCard(el, node);
+  }
+  for (const [loc, el] of cards) {
+    if (!snap.nodes.some(n => n.location === loc)) { el.remove(); cards.delete(loc); }
+  }
+}
+
+const es = new EventSource("/events");
+es.onopen = () => document.getElementById("conn").textContent = "live";
+es.onerror = () => document.getElementById("conn").textContent = "bridge disconnected — retrying…";
+es.onmessage = e => {
+  document.getElementById("conn").textContent = "live";
+  render(JSON.parse(e.data));
+};
+</script>
+</body>
+</html>

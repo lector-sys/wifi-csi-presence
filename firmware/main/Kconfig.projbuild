@@ -1,0 +1,48 @@
+menu "CSI Presence Sensor"
+
+    config CSI_WIFI_SSID
+        string "Home WiFi SSID"
+        default "myssid"
+        help
+            The router this node associates with. CSI is measured on the link
+            to this AP, so put the node where you want to sense.
+
+    config CSI_WIFI_PASSWORD
+        string "Home WiFi password"
+        default "mypassword"
+
+    config CSI_LOCATION
+        string "Room name"
+        default "living room"
+        help
+            Shown on the dashboard card.
+
+    config CSI_HOST_IP
+        string "Host IP running the bridge"
+        default "192.168.1.100"
+        help
+            Telemetry JSON is sent here over UDP. Set this to the LAN IP of the
+            computer running bridge/bridge.py.
+
+    config CSI_TELEMETRY_PORT
+        int "Telemetry UDP port (to host)"
+        default 5566
+
+    config CSI_COMMAND_PORT
+        int "Command UDP port (from host)"
+        default 5567
+        help
+            The node listens here for the "CAL" command sent by the dashboard's
+            Calibrate button.
+
+    config CSI_PACKET_RATE
+        int "Traffic generator rate (packets/second)"
+        default 100
+        range 10 500
+        help
+            UDP packets sent to the gateway per second. The router's ACKs are
+            what actually produce CSI, so this sets the CSI sample rate. 100 is
+            a good default; lower it if your router rate-limits or the link is
+            congested.
+
+endmenu
